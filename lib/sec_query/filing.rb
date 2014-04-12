@@ -1,6 +1,12 @@
+# encoding: UTF-8
+
 module SecQuery
+  # => SecQuery::Filing
+  # SecQuery::Filing requests and parses filings for any given SecQuery::Entity
   class Filing
-    attr_accessor :cik, :accession_nunber, :act, :file_number, :file_number_href, :filing_date, :filing_href, :filing_type, :film_number, :form_name, :size, :type
+    attr_accessor :cik, :accession_nunber, :act, :file_number,
+                  :file_number_href, :filing_date, :filing_href,
+                  :filing_type, :film_number, :form_name, :size, :type
 
     def initialize(cik, filing)
       @cik = cik
@@ -9,31 +15,34 @@ module SecQuery
       end
     end
 
-    def content
-      unless filing_href.nil?
-        response = Entity.query(filing_href)
-        document = Nokogiri::HTML(response)
-        url = document.xpath('//table/tr/td/a').map { |link| link['href'] if !!(link['href'].match(".txt"))}.compact
-        unless url.empty?
-          response = Entity.query("http://www.sec.gov/#{url.first}")
-          document = Nokogiri::HTML(response)
-
-          content = []
-          if document.xpath('//document').to_s.length > 0
-            document.xpath('//document').each do |e|
-              content << Hashie::Mash.new(Crack::XML.parse(e.to_s)['document'])
-            end
-          end
-          return content
-        end
-      end
-      return nil
+    def filing_url
+      response = Entity.query(filing_href)
+      document = Nokogiri::HTML(response)
+      document.xpath('//table/tr/td/a').map do |link|
+        link['href'] unless link['href'].match('.txt')
+      end.compact
     end
 
-    def self.find(cik, start=0, count=80)
-      url = "http://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=#{cik}&count=#{count}&start=#{start}"
-      response = Entity.query(url+"&output=atom")
+    def content(content = [])
+      response = Entity.query("http://www.sec.gov/#{filing_url.first}")
       document = Nokogiri::HTML(response)
+      if document.xpath('//document').to_s.length > 0
+        document.xpath('//document').each do |e|
+          content << Hashie::Mash.new(Crack::XML.parse(e.to_s)['document'])
+        end
+      end
+      content
+    end
+
+    def self.find(cik, start = 0, count = 80)
+      browse_edgar = 'http://www.sec.gov/cgi-bin/browse-edgar?'
+      params = "action=getcompany&CIK=#{cik}&count=#{count}&start=#{start}"
+      response = Entity.query("#{browse_edgar}#{params}&output=atom")
+      document = Nokogiri::HTML(response)
+      parse(cik, document)
+    end
+
+    def self.parse(cik, document)
       filings = []
       if document.xpath('//content').to_s.length > 0
         document.xpath('//content').each do |e|
@@ -42,7 +51,7 @@ module SecQuery
           end
         end
       end
-      return filings
+      filings
     end
   end
 end
