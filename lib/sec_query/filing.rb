@@ -1,45 +1,48 @@
 module SecQuery
-    class Filing
-        attr_accessor :cik, :title, :summary, :link, :term, :date, :file_id
-        def initialize(filing)
-            @cik = filing[:cik]
-            @title = filing[:title]
-            @summary = filing[:summary]
-            @link = filing[:link]
-            @term = filing[:term]
-            @date = filing[:date]
-            @file_id = filing[:file_id]
-        end
-  
-    
-        def self.find(entity, start, count, limit)
+  class Filing
+    attr_accessor :cik, :accession_nunber, :act, :file_number, :file_number_href, :filing_date, :filing_href, :filing_type, :film_number, :form_name, :size, :type
 
-            if start == nil; start = 0; end
-            if count == nil; count = 80; end
-            url ="http://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK="+entity[:cik]+"&output=atom&count="+count.to_s+"&start="+start.to_s
-            response = Entity.query(url)
-            doc = Hpricot::XML(response)
-            entries = doc.search(:entry);
-            query_more = false;
-            for entry in entries
-                query_more = true;
-                filing={}
-                filing[:cik] = entity[:cik]
-                filing[:title] = (entry/:title).innerHTML
-                filing[:summary] = (entry/:summary).innerHTML
-                filing[:link] =  (entry/:link)[0].get_attribute("href")
-                filing[:term] = (entry/:category)[0].get_attribute("term")
-                filing[:date] = (entry/:updated).innerHTML
-                filing[:file_id] = (entry/:id).innerHTML.split("=").last
-
-                entity[:filings] << Filing.new(filing)              
-            end
-            if query_more and limit == nil || query_more and !limit
-                Filing.find(entity, start+count, count, limit);
-            else
-                return entity
-            end
-        end 
+    def initialize(cik, filing)
+      @cik = cik
+      filing.each do |key, value|
+        instance_variable_set "@#{key}", value.to_s
+      end
     end
 
+    def content
+      unless filing_href.nil?
+        response = Entity.query(filing_href)
+        document = Nokogiri::HTML(response)
+        url = document.xpath('//table/tr/td/a').map { |link| link['href'] if !!(link['href'].match(".txt"))}.compact
+        unless url.empty?
+          response = Entity.query("http://www.sec.gov/#{url.first}")
+          document = Nokogiri::HTML(response)
+
+          content = []
+          if document.xpath('//document').to_s.length > 0
+            document.xpath('//document').each do |e|
+              content << Hashie::Mash.new(Crack::XML.parse(e.to_s)['document'])
+            end
+          end
+          return content
+        end
+      end
+      return nil
+    end
+
+    def self.find(cik, start=0, count=80)
+      url = "http://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=#{cik}&count=#{count}&start=#{start}"
+      response = Entity.query(url+"&output=atom")
+      document = Nokogiri::HTML(response)
+      filings = []
+      if document.xpath('//content').to_s.length > 0
+        document.xpath('//content').each do |e|
+          if e.xpath('//content/accession-nunber').to_s.length > 0
+            filings << Filing.new(cik, Crack::XML.parse(e.to_s)['content'])
+          end
+        end
+      end
+      return filings
+    end
+  end
 end
