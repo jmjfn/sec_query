@@ -48,6 +48,7 @@ module SecQuery
     def self.for_date(date, &blk)
       ftp = Net::FTP.new('ftp.sec.gov')
       ftp.login
+      ftp.passive = true
       file_name = ftp.nlst("edgar/daily-index/#{ date.to_sec_uri_format }*")[0]
       ftp.close
       open("ftp://ftp.sec.gov/#{ file_name }") do |file|
@@ -59,6 +60,7 @@ module SecQuery
           filings_for_index(file).each(&blk)
         end
       end
+    rescue Net::FTPTempError
     end
 
     def self.filings_for_index(index)
@@ -76,6 +78,7 @@ module SecQuery
     def self.filing_for_index_row(row)
       data = row.split(/   /).reject(&:blank?).map(&:strip)
       data = row.split(/  /).reject(&:blank?).map(&:strip) if data.count == 4
+      data[1].gsub!('/ADV', '').gsub!('/FI', '')
       data.delete_at(1) if data[1][0] == '/'
       return nil unless Regexp.new(/\d{8}/).match(data[3])
       unless data[4][0..3] == 'http'
